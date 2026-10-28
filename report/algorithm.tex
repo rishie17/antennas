@@ -1,0 +1,84 @@
+% Algorithms 1-4 of Perera et al., IEEE Access 13 (2025) 94488, transcribed as printed.
+% Requires \usepackage{algorithm} and \usepackage{algpseudocode}.
+\begin{algorithm}[!t]
+\caption{$\mathit{Asdvm}$: $y = M\hat{A}_N z$}\label{alg:asdvm}
+\begin{algorithmic}[1]
+\Require $N=2^r\ (r\ge4)$, $M=2N$, $\alpha\in\mathbb{C}$ with $|\alpha|=1$, $z\in\mathbb{C}^N$ or $\mathbb{R}^N$, $c\in\mathbb{C}^M$
+\Ensure $y = M\hat{A}_N z$
+\Function{Asdvm}{$z, N$}
+  \If{$N = 16$}
+    \State $y \gets \Call{Asdvm16}{z, N}$
+  \EndIf
+  \If{$N \ge 32$}
+    \State $u_1 \gets \hat{D}_N\, z$
+    \State $u_2 \gets J\, u_1$
+    \State $v_1 \gets \Call{Adft}{u_2, M}$
+    \State $v_2 \gets \breve{D}_M\, v_1$
+    \State $y_1 \gets \Call{Aidft}{v_2, M}$
+    \State $y_2 \gets J^{T} y_1$
+    \State $y \gets \hat{D}_N\, y_2$
+  \EndIf
+  \State \Return $y$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[!t]
+\caption{$\mathit{Asdvm16}$: $y = M\hat{A}_{16} z$}\label{alg:asdvm16}
+\begin{algorithmic}[1]
+\Require $N=16$, $M=2N$, $z\in\mathbb{C}^N$ or $\mathbb{R}^N$
+\Ensure $y = M\hat{A}_{16} z$
+\Function{Asdvm16}{$z, N$}
+  \If{$N = 16$}
+    \State $w_1 \gets \hat{D}_N\, z$
+    \State $w_2 \gets J\, w_1$
+    \State $w_3 \gets \hat{F}_M\, w_2$ \Comment{$\hat{F}_{32}=S_4S_3S_2S_1S_0$}
+    \State $w_4 \gets \breve{D}_M\, w_3$
+    \State $w_5 \gets \hat{F}^{*}_M\, w_4$ \Comment{$\hat{F}^{*}_{32}=S_0^TS_1^TS_2^TS_3^TS_4^{*}$}
+    \State $w_6 \gets J^{T} w_5$
+    \State $y \gets \hat{D}_N\, w_6$
+  \EndIf
+  \State \Return $y$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[!t]
+\caption{$\mathit{Adft}$: $v_1 = \hat{F}_M u_2$}\label{alg:adft}
+\begin{algorithmic}[1]
+\Require $M=2^{r_1}\ (r_1\ge5)$, $M_1=M/2$, $u_2\in\mathbb{C}^M$
+\Ensure $v_1 = \hat{F}_M u_2$
+\Function{Adft}{$u_2, M$}
+  \If{$M = 32$}
+    \State $v_1 \gets \hat{F}_{32}\, u_2$
+  \EndIf
+  \If{$M \ge 64$}
+    \State $p \gets H_M\, u_2$
+    \State $a_1 \gets \Call{Adft}{p(1\!:\!M_1), M_1}$
+    \State $a_2 \gets \Call{Adft}{p(M_1\!+\!1\!:\!M), M_1}$
+    \State $v_1 \gets P_M^{T}\,[a_1^T\ a_2^T]^T$
+  \EndIf
+  \State \Return $v_1$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[!t]
+\caption{$\mathit{Aidft}$: $y_1 = \hat{F}^{*}_M v_2$}\label{alg:aidft}
+\begin{algorithmic}[1]
+\Require $M=2^{r_1}\ (r_1\ge5)$, $M_1=M/2$, $v_2\in\mathbb{C}^M$
+\Ensure $y_1 = \hat{F}^{*}_M v_2$
+\Function{Aidft}{$v_2, M$}
+  \If{$M = 32$}
+    \State $y_1 \gets \hat{F}^{*}_{32}\, v_2$
+  \EndIf
+  \If{$M \ge 64$}
+    \State $q \gets P_M\, v_2$
+    \State $b_1 \gets \Call{Aidft}{q(1\!:\!M_1), M_1}$
+    \State $b_2 \gets \Call{Aidft}{q(M_1\!+\!1\!:\!M), M_1}$
+    \State $y_1 \gets H^{*}_M\,[b_1^T\ b_2^T]^T$
+  \EndIf
+  \State \Return $y_1$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}

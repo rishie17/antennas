@@ -1,0 +1,26 @@
+# Decisions (one line each)
+
+- D1  Appendix S4 row 19 is printed with +j in column 19; we use column 18 (column 19 is already used by rows 1/31, column 18 is otherwise empty, row 19 must conjugate-pair row 13). With the fix S4·S3·S2·S1·S0 == eq. (14) exactly; as printed, 24 entries differ (G2).
+- D2  H_M = [[I,I],[D,-D]] is executed as diag(I,D)·[[I,I],[I,-I]] (butterfly, then one multiply per twiddle). Written as a single factor it would count every twiddle twice; the split reproduces Lemma 3.2, Table 1 and Table 3 exactly (G3).
+- D3  The fast algorithms compute M·Â z (paper Sec. III); we divide by M = 2N afterwards (power of two, not counted as a gain-delay).
+- D4  Trivial multipliers = {±1, ±j, ±1±j}. The 8-PSK twiddles (±1±j)/√2 used by ADVM-b at b=3 are counted as non-trivial (they need a 1/√2 gain).
+- D5  Op counts are taken at a generic α (ωτ = 1/π) so no delay entry accidentally equals ±1/±j; D^ has N-1 non-trivial entries (k=0 is 1) and D( has M, as in paper eq. (6).
+- D6  Gain-delay split follows paper Table 3: gains = twiddles inside F/F*, delays = D^ entries, anti-causal = D( entries.
+- D7  Adders = Σ_rows (nnz-1) over every executed factor (complex additions). Memory = distinct non-trivial constant twiddles + |D(| pre-computed entries.
+- D8  Sign convention: x_l = exp(+j2πf·l·d·sinθ/c) (wave reaches higher-index elements first) so DVM beam k' points at sinθ = +2k'/N.
+- D9  Steering pre-delays diag(α^{-Nl/2}) have N-1 non-trivial entries (l=0 is 1); reported as a separate column, not added to the method totals, because the paper's counts exclude them.
+- D10 "The band" for squint/pointing/SLL statistics and for b* = course band f/f_max ∈ [0.5, 1] (5-10 GHz); the full 0.1-1 sweep is also reported in summary_methods.csv.
+- D11 Pointing error is measured against the intended direction sinθ = 2k'/N for every method, including PS (whose analytic squint target is only used in G4).
+- D12 G4 checks PS only where the analytic squint direction is inside |sinθ| ≤ 0.95 (beyond that the beam leaves visible space).
+- D13 Peak = argmax on the 4001-point sinθ grid refined by a 3-point parabola on the dB pattern, then θ = arcsin(u).
+- D14 Main lobe = from the peak to the first local minimum on each side; SLL = highest point outside it; NaN if no sidelobe is in view (wide beams at low f).
+- D15 Optimal complex scalar for ‖Ã - sÂ‖₂: Nelder-Mead on (Re s, Im s) started from the Frobenius least-squares s (the objective is convex in s).
+- D16 ADVM-b: exact radix-2 recursion down to size 1, twiddles rounded to the nearest 2^b-PSK point (ties toward +phase, exact integer arithmetic), D( kept exact.
+- D17 F̂*_32 is the conjugate transpose of the factor product (paper Remark 2.2), i.e. the reversed, conjugate-transposed factor list; Aidft follows from the same reversal.
+- D18 Paper's Fig. 3/4 beams are one-sided and its element spacing is not stated; we steer symmetrically about broadside with d = λ/2 at f_max, so F2 matches set-up and trends, not exact beam angles.
+- D19 F4: the requested twin axis (gain-delay count vs b) is drawn as its own panel instead, to avoid a dual-y-axis chart.
+- D20 F2 error panel = |normalized ADVM pattern - normalized EXACT pattern| in dB (paper Fig. 3 right column shows the same quantity in linear polar form).
+- D21 N = 8 skipped (needs the 16-point ADFT of ref. [45], not given in this paper).
+- D22 Observed: eq. (14) satisfies F̂[k,n] = g((k·n) mod 32) with g = its row 1. Used only as an independent cross-check in G2.
+- D23 G5 is tested at N = 16 and N = 64. For N = 16 every twiddle is exactly representable once 2^b ≥ 32, so b* = 5 is trivially EXACT; this is reported as such.
+- D24 Paper's Table 2 errors (~1e-14) are absolute errors at α ≈ 1 (nearly all-ones matrix); our relative error with optimal s is a different metric and is not compared numerically.
