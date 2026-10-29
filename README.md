@@ -60,3 +60,10 @@ All numbers are in `results/SUMMARY.md`, and every resolved ambiguity is in `DEC
 The key design choice is that every algorithm is a list of sparse matrices. The same list is
 multiplied to produce the beams and is scanned to count the operations, so the complexity numbers
 always describe the code that actually runs.
+
+## Hardware mapping (added later)
+
+`dvm/hardware.py` turns each algorithm into an RF parts list. Butterflies become 180° hybrids, ±j blocks become 90° hybrids, sums become combiners, and α^p becomes a delay line of length p·τ. It then converts the line lengths to mm for air, stripline, WR-90 and a guide with f_c = 4.5 GHz.
+- Outputs are `results/hardware_table.csv` and Tables in Sec. "Hardware Mapping" of `report/results_section.tex`.
+- Dispersion study: the delay lines are swapped for real lines. A TEM line (stripline) is still squint-free. A waveguide is not, because its speed depends on frequency. WR-90 does not even propagate below 6.56 GHz, which covers part of the 5–10 GHz band. See `results/figs/F7_dispersion.png` and `results/dispersion_summary.csv`.
+- One-line takeaway: the DVM is squint-free only if the delay lines are non-dispersive (TEM), and the ±j parts need 90° hybrids, which are narrowband.

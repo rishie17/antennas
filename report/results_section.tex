@@ -148,6 +148,110 @@ ADVM-b (b=8) & 0.00 & 0.00 & 0.00 & -13.15 & 0.00 & 130 & yes \\
 
 \hline\end{tabular}\end{table}
 
+\section{Hardware Mapping}\label{sec:hw}
+
+Each factor that the code executes is mapped to RF components by fixed rules (Table~\ref{tab:blockmap}); the same factor lists produce the gain-delay counts of Table~\ref{tab:cx}, and the component counts are checked against them in \texttt{tests/test\_hardware.py} (combiners $+\,2\times$hybrids = adders, delay lines = delays, gain blocks = gains + anti-causal terms).
+
+\begin{table}[!t]\centering\caption{Block mapping: matrix operation $\rightarrow$ RF component}\label{tab:blockmap}
+
+\setlength{\tabcolsep}{3pt}\begin{tabular}{p{0.45\columnwidth}p{0.47\columnwidth}}\hline
+
+Math operation & RF component \\ \hline
+
+$\alpha^{p}=e^{-j\omega p\tau}$ in $\hat{D}_N$ or DIRECT & delay line of length $p\tau$ \\
+
+2$\times$2 block $\begin{smallmatrix}1&1\\1&-1\end{smallmatrix}$ (butterfly) & $180^\circ$ hybrid (rat-race / magic-T) \\
+
+orthogonal 2$\times$2 block with $\pm j$ entries & $90^\circ$ hybrid (branch-line coupler) \\
+
+other row summing $n$ inputs & $n-1$ two-way combiners \\
+
+signal used by $u$ components & $u-1$ two-way splitters \\
+
+coefficient $-1$ outside a hybrid & $180^\circ$ inverter (balun / line flip) \\
+
+coefficient $\pm j$ outside a hybrid & fixed $90^\circ$ shifter \\
+
+non-trivial constant twiddle $e^{-j2\pi l/M}$ & constant gain block (attenuator + phase shifter) \\
+
+$\breve{D}$ entry (pre-computed, depends on $\omega$) & frequency-dependent gain block \\
+
+permutation, $J$, $J^T$, coefficient $1$ & wiring / termination \\
+
+scale $1/M$ & common attenuation (not counted) \\
+
+\hline\end{tabular}\end{table}
+
+\begin{table*}[!t]\centering\caption{Component counts of the signal-flow graphs (pre-delays and the $1/M$ scale, common to all methods, excluded)}\label{tab:hwcount}
+
+\begin{tabular}{rlrrrrrrrrrrr}\hline
+
+$N$ & method & delay lines & $\sum p$ ($\tau$) & $\max p$ ($\tau$) & combiners & splitters & $180^\circ$ hyb. & $90^\circ$ hyb. & $90^\circ$ shift & inverters & const.\ gains & $\omega$-dep.\ gains \\ \hline
+
+16 & DIRECT & 225 & 14400 & 225 & 240 & 240 & 0 & 0 & 0 & 0 & 0 & 0 \\
+
+16 & EXACT & 30 & 1240 & 112.5 & 0 & 0 & 160 & 0 & 30 & 0 & 68 & 32 \\
+
+16 & ADVM & 30 & 1240 & 112.5 & 274 & 274 & 40 & 30 & 0 & 130 & 0 & 32 \\
+
+32 & DIRECT & 961 & 246016 & 961 & 992 & 992 & 0 & 0 & 0 & 0 & 0 & 0 \\
+
+32 & EXACT & 62 & 10416 & 480.5 & 0 & 0 & 384 & 0 & 62 & 0 & 196 & 64 \\
+
+32 & ADVM & 62 & 10416 & 480.5 & 548 & 548 & 144 & 60 & 2 & 260 & 60 & 64 \\
+
+64 & DIRECT & 3969 & 4064256 & 3969 & 4032 & 4032 & 0 & 0 & 0 & 0 & 0 & 0 \\
+
+64 & EXACT & 126 & 85344 & 1984.5 & 0 & 0 & 896 & 0 & 126 & 0 & 516 & 128 \\
+
+64 & ADVM & 126 & 85344 & 1984.5 & 1096 & 1096 & 416 & 120 & 6 & 520 & 244 & 128 \\
+
+\hline\end{tabular}\end{table*}
+
+\begin{table*}[!t]\centering\caption{Physical delay-line length for $f_{\max}=10$~GHz, $\tau=1/(Nf_{\max})$. Waveguides use the group velocity at 7.5~GHz. Total length in m / longest single line in mm.}\label{tab:hwlen}
+
+\begin{tabular}{rrlrrrr}\hline
+
+$N$ & $\tau$ (ps) & method & air/coax & stripline ($\varepsilon_r$=4.4) & WR-90 & guide $f_c$=4.5~GHz \\ \hline
+
+16 & 6.25 & DIRECT & 26.98 / 422 & 12.86 / 201 & 13.10 / 205 & 21.59 / 337 \\
+
+16 & 6.25 & EXACT, ADVM & 2.32 / 211 & 1.11 / 100 & 1.13 / 102 & 1.86 / 169 \\
+
+32 & 3.12 & DIRECT & 230.48 / 900 & 109.88 / 429 & 111.88 / 437 & 184.38 / 720 \\
+
+32 & 3.12 & EXACT, ADVM & 9.76 / 450 & 4.65 / 215 & 4.74 / 219 & 7.81 / 360 \\
+
+64 & 1.56 & DIRECT & 1903.80 / 1859 & 907.60 / 886 & 924.13 / 902 & 1523.04 / 1487 \\
+
+64 & 1.56 & EXACT, ADVM & 39.98 / 930 & 19.06 / 443 & 19.41 / 451 & 31.98 / 744 \\
+
+\hline\end{tabular}\end{table*}
+
+At $N=16$, DIRECT needs 225 delay lines totalling 14400$\tau$ (27.0~m in air) plus 240 combiners and 240 splitters. EXACT needs 30 lines (1240$\tau$, 2.32~m in air), 160 $180^\circ$ hybrids, 30 fixed $90^\circ$ shifters and 100 gain blocks (32 of them frequency-dependent). ADVM keeps the same delay lines as EXACT and removes 68 constant gain blocks, but replaces most hybrids by 274 combiners, 274 splitters and 130 inverters, and uses 30 $90^\circ$ hybrids. Delay-line length grows as $N^4\tau\propto N^3/f_{\max}$ for DIRECT and as $N^3\tau\propto N^2/f_{\max}$ for EXACT/ADVM (Table~\ref{tab:hwlen}).
+
+\subsection{Dispersion of the delay lines}
+
+\begin{figure}[!t]\centering\includegraphics[width=\columnwidth]{../results/figs/F7_dispersion.pdf}\caption{Beam peak angle vs frequency for EXACT ($N=16$, beams $k'=+2,+6$) when every ideal delay $\alpha^p$ is a physical line. Stripline (TEM) coincides with the ideal TTD. Waveguide lines are designed for $p\tau$ of group delay (dashed) or phase delay (dash-dot) at 7.5~GHz (dotted). Shaded: below the WR-90 cutoff, where the line does not propagate.}\label{fig:f7}\end{figure}
+
+Every ideal delay $\alpha^p=e^{-j\omega p\tau}$ in EXACT -- the $\hat{D}_N$ lines, the $\alpha^{-m^2/2}$ terms from which $\breve{D}$ is computed, and the steering pre-delays -- was replaced by a line of length $L_p=pL_\tau$ designed to give $p\tau$ of delay at $f_0=7.5$~GHz. A TEM line has phase $-\omega L_p\sqrt{\varepsilon_r}/c$; a waveguide has $-\beta(\omega)L_p$ with $\beta=(\omega/c)\sqrt{1-(f_c/f)^2}$. Because all lines share one medium, $\alpha$ is replaced by $e^{-j\beta L_\tau}$, and beam $k'$ points at $\sin\theta=(2k'/N)\,\beta(\omega)L_\tau/(\omega\tau)$; the simulated peaks agree with this expression. For a waveguide, the group-delay design ($L_\tau=v_g(f_0)\tau$) and the phase-delay design ($L_\tau=v_p(f_0)\tau$) differ, and both are reported. Nothing was tuned after seeing the results.
+
+The stripline result is squint-free (spread 2.1e-12$^\circ$), as expected for a non-dispersive line. WR-90 (cutoff 6.56~GHz) does not propagate at 32 of the 101 frequencies in 5--10~GHz; it is usable only from 6.60~GHz, which is a cutoff violation for the 5--10~GHz band. Above cutoff, its group-delay design has 13.6$^\circ$ squint spread and 38.4$^\circ$ pointing error even at $f_0$, because matching group delay leaves the carrier phase wrong. The phase-delay design points correctly at $f_0$ but sweeps beams out of visible space (56 beam-frequency cases), where a grating lobe takes over (the jump in Fig.~\ref{fig:f7}). The hypothetical guide with $f_c=4.5$~GHz covers the whole band, but still shows 17.2$^\circ$ (group design) and 32.7$^\circ$ (phase design) of squint spread, with worst pointing errors of 33.4$^\circ$ and 24.5$^\circ$. The squint-free property of the DVM therefore holds only for non-dispersive (TEM) delay lines; hollow waveguide is not suitable.
+
+\subsection{Hardware limitations}
+
+\begin{enumerate}
+
+\item $90^\circ$ hybrids and fixed $90^\circ$ shifters are band-limited (a branch-line coupler is typically accurate over about 10--20\% bandwidth), so the ideal $\pm j$ assumed here does not hold over an octave such as 5--10~GHz without multi-section designs. ADVM relies on these elements more than EXACT.
+
+\item The $\breve{D}$ entries depend on $\omega$; they are not constant components, and wideband operation needs a frequency-dependent network (or per-frequency re-programming) that we did not design.
+
+\item No conductor/dielectric loss, impedance mismatch, coupler imbalance, or splitter/combiner loss is modelled. With hundreds of cascaded passive components, insertion loss would be significant.
+
+\item Area and power remain an \emph{estimate from a proportional model} (component counts and line lengths only); no layout or routing was done.
+
+\end{enumerate}
+
 \section{Discussion and Limitations}
 
 \begin{enumerate}
@@ -156,7 +260,7 @@ ADVM-b (b=8) & 0.00 & 0.00 & 0.00 & -13.15 & 0.00 & 130 & yes \\
 
 \item Multiplication by $\pm j$ is treated as free. In hardware this assumes an ideal wideband $90^\circ$ element (hybrid coupler or Hilbert transformer), which itself has finite bandwidth and error.
 
-\item All delays are ideal: no waveguide or transmission-line dispersion, loss, mismatch, or quantization of the delay values, and the antenna elements are isotropic with no mutual coupling. The results are array-factor computations, not full-wave or measured data.
+\item Apart from the dispersion study of Sec.~\ref{sec:hw}, all delays are ideal: no loss, mismatch or quantization of the delay values, and the antenna elements are isotropic with no mutual coupling. The results are array-factor computations, not full-wave or measured data.
 
 \item Area and power figures are an \emph{estimate from a proportional model} (area, power $\propto$ gain-delay count, following the paper). Adders, routing and the anti-causal latency are not costed; ADVM needs more adders than EXACT.
 

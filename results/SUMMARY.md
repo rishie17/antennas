@@ -48,4 +48,27 @@ N = 16, course band f/f_max in [0.5, 1.0] (5-10 GHz at f_max = 10 GHz); inner be
 | 6 | 130 | 0.00 | 0.00 | 0.00 | yes |
 | 8 | 130 | 0.00 | 0.00 | 0.00 | yes |
 
-Figures: results/figs/F1..F6 (.png 300 dpi + .pdf). LaTeX: report/results_section.tex, report/algorithm.tex.
+## Hardware mapping (results/hardware_table.csv, dispersion_summary.csv)
+
+| N | method | delay lines | sum p (tau) | combiners | splitters | 180 hyb | 90 hyb | 90 shift | gains (const/w-dep) | total length air (m) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 16 | ADVM | 30 | 1240 | 274 | 274 | 40 | 30 | 0 | 0/32 | 2.32 |
+| 16 | DIRECT | 225 | 14400 | 240 | 240 | 0 | 0 | 0 | 0/0 | 26.98 |
+| 16 | EXACT | 30 | 1240 | 0 | 0 | 160 | 0 | 30 | 68/32 | 2.32 |
+| 32 | ADVM | 62 | 10416 | 548 | 548 | 144 | 60 | 2 | 60/64 | 9.76 |
+| 32 | DIRECT | 961 | 246016 | 992 | 992 | 0 | 0 | 0 | 0/0 | 230.48 |
+| 32 | EXACT | 62 | 10416 | 0 | 0 | 384 | 0 | 62 | 196/64 | 9.76 |
+| 64 | ADVM | 126 | 85344 | 1096 | 1096 | 416 | 120 | 6 | 244/128 | 39.98 |
+| 64 | DIRECT | 3969 | 4064256 | 4032 | 4032 | 0 | 0 | 0 | 0/0 | 1903.80 |
+| 64 | EXACT | 126 | 85344 | 0 | 0 | 896 | 0 | 126 | 516/128 | 39.98 |
+
+| medium | design | freqs below cutoff | squint spread (deg) | max pointing err (deg) | err at 7.5 GHz (deg) | beams out of view |
+|---|---|---|---|---|---|---|
+| ideal | - | 0/101 | 0.00 | 0.00 | 0.00 | 0 |
+| stripline | - | 0/101 | 0.00 | 0.00 | 0.00 | 0 |
+| WR-90 | group | 32/101 | 13.58 | 46.22 | 38.41 | 0 |
+| WR-90 | phase | 32/101 | 180.00 | 138.59 | 0.00 | 56 |
+| WG-fc4.5 | group | 0/101 | 17.24 | 33.43 | 19.90 | 0 |
+| WG-fc4.5 | phase | 0/101 | 32.73 | 24.47 | 0.00 | 0 |
+
+Figures: results/figs/F1..F7 (.png 300 dpi + .pdf). LaTeX: report/results_section.tex, report/algorithm.tex.

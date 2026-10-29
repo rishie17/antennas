@@ -28,6 +28,8 @@ def load():
     d['full'] = {(r['method'], r['b']): r for r in select(d['summary_methods'], band='full_0.1-1')}
     d['cx'] = {(r['method'], r['N'], r['b']): r for r in d['complexity']}
     d['bstar'] = d['bstar'][0]['b_star']
+    d['hw'] = {(int(r['N']), r['method']): r for r in read_csv(RES / 'hardware_table.csv')}
+    d['disp'] = {(r['medium'], r['design']): r for r in read_csv(RES / 'dispersion_summary.csv')}
     return d
 
 
@@ -192,6 +194,8 @@ def tex(d, h):
         w(' & '.join(row) + r' \\')
     w(r'\hline\end{tabular}\end{table}')
 
+    hardware_tex(d, w)
+
     w(r'\section{Discussion and Limitations}')
     w(r'\begin{enumerate}')
     w(rf"\item \emph{{The paper\textquotesingle s ADVM does not meet our criteria.}} It halves the gain-delay count "
@@ -203,7 +207,7 @@ def tex(d, h):
       rf"not verify this. The thresholds were fixed before running and were not changed.")
     w(r'\item Multiplication by $\pm j$ is treated as free. In hardware this assumes an ideal wideband '
       r'$90^\circ$ element (hybrid coupler or Hilbert transformer), which itself has finite bandwidth and error.')
-    w(r'\item All delays are ideal: no waveguide or transmission-line dispersion, loss, mismatch, or '
+    w(r'\item Apart from the dispersion study of Sec.~\ref{sec:hw}, all delays are ideal: no loss, mismatch or '
       r'quantization of the delay values, and the antenna elements are isotropic with no mutual coupling. '
       r'The results are array-factor computations, not full-wave or measured data.')
     w(r'\item Area and power figures are an \emph{estimate from a proportional model} (area, power $\propto$ '
@@ -216,6 +220,120 @@ def tex(d, h):
       r'set-up and trends, not its exact beam angles.')
     w(r'\end{enumerate}')
     (REP / 'results_section.tex').write_text('\n\n'.join(lines) + '\n')
+
+
+MEDIA_TEX = [('air', 'air/coax'), ('stripline', r'stripline ($\varepsilon_r$=4.4)'), ('WR-90', 'WR-90'),
+             ('WG-fc4.5', r'guide $f_c$=4.5~GHz')]
+
+
+def hardware_tex(d, w):
+    from dvm.hardware import F_CENTER, FC_WR90
+    hw, dp = d['hw'], d['disp']
+    Ns = sorted({N for N, _ in hw})
+    w(r'\section{Hardware Mapping}\label{sec:hw}')
+    w(r'Each factor that the code executes is mapped to RF components by fixed rules (Table~\ref{tab:blockmap}); '
+      r'the same factor lists produce the gain-delay counts of Table~\ref{tab:cx}, and the component counts are '
+      r'checked against them in \texttt{tests/test\_hardware.py} (combiners $+\,2\times$hybrids = adders, '
+      r'delay lines = delays, gain blocks = gains + anti-causal terms).')
+    w(r'\begin{table}[!t]\centering\caption{Block mapping: matrix operation $\rightarrow$ RF component}\label{tab:blockmap}')
+    w(r'\setlength{\tabcolsep}{3pt}\begin{tabular}{p{0.45\columnwidth}p{0.47\columnwidth}}\hline')
+    w(r'Math operation & RF component \\ \hline')
+    for a, b in ((r'$\alpha^{p}=e^{-j\omega p\tau}$ in $\hat{D}_N$ or DIRECT', r'delay line of length $p\tau$'),
+                 (r'2$\times$2 block $\begin{smallmatrix}1&1\\1&-1\end{smallmatrix}$ (butterfly)', r'$180^\circ$ hybrid (rat-race / magic-T)'),
+                 (r'orthogonal 2$\times$2 block with $\pm j$ entries', r'$90^\circ$ hybrid (branch-line coupler)'),
+                 (r'other row summing $n$ inputs', r'$n-1$ two-way combiners'),
+                 (r'signal used by $u$ components', r'$u-1$ two-way splitters'),
+                 (r'coefficient $-1$ outside a hybrid', r'$180^\circ$ inverter (balun / line flip)'),
+                 (r'coefficient $\pm j$ outside a hybrid', r'fixed $90^\circ$ shifter'),
+                 (r'non-trivial constant twiddle $e^{-j2\pi l/M}$', r'constant gain block (attenuator + phase shifter)'),
+                 (r'$\breve{D}$ entry (pre-computed, depends on $\omega$)', r'frequency-dependent gain block'),
+                 (r'permutation, $J$, $J^T$, coefficient $1$', r'wiring / termination'),
+                 (r'scale $1/M$', r'common attenuation (not counted)')):
+        w(rf'{a} & {b} \\')
+    w(r'\hline\end{tabular}\end{table}')
+
+    w(r'\begin{table*}[!t]\centering\caption{Component counts of the signal-flow graphs (pre-delays and the '
+      r'$1/M$ scale, common to all methods, excluded)}\label{tab:hwcount}')
+    w(r'\begin{tabular}{rlrrrrrrrrrrr}\hline')
+    w(r'$N$ & method & delay lines & $\sum p$ ($\tau$) & $\max p$ ($\tau$) & combiners & splitters & '
+      r'$180^\circ$ hyb. & $90^\circ$ hyb. & $90^\circ$ shift & inverters & const.\ gains & $\omega$-dep.\ gains \\ \hline')
+    for N in Ns:
+        for m in ('DIRECT', 'EXACT', 'ADVM'):
+            r = hw[(N, m)]
+            w(rf"{N} & {m} & " + ' & '.join(f"{r[k]:.10g}" for k in (
+                'delay_lines', 'total_delay_tau', 'max_delay_tau', 'combiners', 'splitters', 'hyb180', 'hyb90',
+                'shift90', 'inverters', 'gain_const', 'gain_freqdep')) + r' \\')
+    w(r'\hline\end{tabular}\end{table*}')
+
+    w(r'\begin{table*}[!t]\centering\caption{Physical delay-line length for $f_{\max}=10$~GHz, '
+      rf'$\tau=1/(Nf_{{\max}})$. Waveguides use the group velocity at {F_CENTER/1e9:g}~GHz. '
+      r'Total length in m / longest single line in mm.}\label{tab:hwlen}')
+    w(r'\begin{tabular}{rrl' + 'r' * len(MEDIA_TEX) + r'}\hline')
+    w(r'$N$ & $\tau$ (ps) & method & ' + ' & '.join(t for _, t in MEDIA_TEX) + r' \\ \hline')
+    for N in Ns:
+        for m in ('DIRECT', 'EXACT'):
+            r = hw[(N, m)]
+            lab = 'EXACT, ADVM' if m == 'EXACT' else m
+            w(rf"{N} & {r['tau_ps']:.3g} & {lab} & " + ' & '.join(
+                f"{r['total_m_' + k]:.2f} / {r['max_mm_' + k]:.0f}" for k, _ in MEDIA_TEX) + r' \\')
+    w(r'\hline\end{tabular}\end{table*}')
+    same = all(hw[(N, 'ADVM')]['total_delay_tau'] == hw[(N, 'EXACT')]['total_delay_tau'] for N in Ns)
+    e16, a16, d16 = hw[(16, 'EXACT')], hw[(16, 'ADVM')], hw[(16, 'DIRECT')]
+    w(rf"At $N=16$, DIRECT needs {d16['delay_lines']:g} delay lines totalling {d16['total_delay_tau']:g}$\tau$ "
+      rf"({d16['total_m_air']:.1f}~m in air) plus {d16['combiners']:g} combiners and {d16['splitters']:g} splitters. "
+      rf"EXACT needs {e16['delay_lines']:g} lines ({e16['total_delay_tau']:g}$\tau$, {e16['total_m_air']:.2f}~m in air), "
+      rf"{e16['hyb180']:g} $180^\circ$ hybrids, {e16['shift90']:g} fixed $90^\circ$ shifters and {e16['gain_blocks']:g} "
+      rf"gain blocks ({e16['gain_freqdep']:g} of them frequency-dependent). "
+      rf"ADVM {'keeps the same delay lines as' if same else 'changes the delay lines of'} EXACT and removes "
+      rf"{e16['gain_const'] - a16['gain_const']:g} constant gain blocks, but replaces most hybrids by "
+      rf"{a16['combiners']:g} combiners, {a16['splitters']:g} splitters and {a16['inverters']:g} inverters, and "
+      rf"uses {a16['hyb90']:g} $90^\circ$ hybrids. "
+      r'Delay-line length grows as $N^4\tau\propto N^3/f_{\max}$ for DIRECT and as $N^3\tau\propto N^2/f_{\max}$ for '
+      r'EXACT/ADVM (Table~\ref{tab:hwlen}).')
+
+    w(r'\subsection{Dispersion of the delay lines}')
+    wr, wg = dp[('WR-90', 'group')], dp[('WG-fc4.5', 'group')]
+    wrp, wgp, tem = dp[('WR-90', 'phase')], dp[('WG-fc4.5', 'phase')], dp[('stripline', '')]
+    w(r'\begin{figure}[!t]\centering\includegraphics[width=\columnwidth]{../results/figs/F7_dispersion.pdf}'
+      r"\caption{Beam peak angle vs frequency for EXACT ($N=16$, beams $k'=+2,+6$) when every ideal delay "
+      r'$\alpha^p$ is a physical line. Stripline (TEM) coincides with the ideal TTD. Waveguide lines are '
+      rf"designed for $p\tau$ of group delay (dashed) or phase delay (dash-dot) at {F_CENTER/1e9:g}~GHz (dotted). "
+      r'Shaded: below the WR-90 cutoff, where the line does not propagate.}\label{fig:f7}\end{figure}')
+    w(r'Every ideal delay $\alpha^p=e^{-j\omega p\tau}$ in EXACT -- the $\hat{D}_N$ lines, the '
+      r'$\alpha^{-m^2/2}$ terms from which $\breve{D}$ is computed, and the steering pre-delays -- was replaced by a '
+      rf"line of length $L_p=pL_\tau$ designed to give $p\tau$ of delay at $f_0={F_CENTER/1e9:g}$~GHz. A TEM line has "
+      r'phase $-\omega L_p\sqrt{\varepsilon_r}/c$; a waveguide has $-\beta(\omega)L_p$ with '
+      r'$\beta=(\omega/c)\sqrt{1-(f_c/f)^2}$. Because all lines share one medium, $\alpha$ is replaced by '
+      r"$e^{-j\beta L_\tau}$, and beam $k'$ points at $\sin\theta=(2k'/N)\,\beta(\omega)L_\tau/(\omega\tau)$; the "
+      r'simulated peaks agree with this expression. For a waveguide, the group-delay design ($L_\tau=v_g(f_0)\tau$) '
+      r'and the phase-delay design ($L_\tau=v_p(f_0)\tau$) differ, and both are reported. '
+      r'Nothing was tuned after seeing the results.')
+    w(rf"The stripline result is squint-free (spread {e(tem['squint_spread_deg'])}$^\circ$), as expected for a "
+      rf"non-dispersive line. WR-90 (cutoff {FC_WR90/1e9:.2f}~GHz) does not propagate at "
+      rf"{int(wr['n_below_cutoff'])} of the {int(wr['n_freqs'])} frequencies in 5--10~GHz; it is usable only from "
+      rf"{wr['f_valid_lo_GHz']:.2f}~GHz, which is a cutoff violation for the 5--10~GHz band. Above cutoff, its "
+      rf"group-delay design has {f(wr['squint_spread_deg'],1)}$^\circ$ squint spread and "
+      rf"{f(wr['err_at_fcenter_deg'],1)}$^\circ$ pointing error even at $f_0$, because matching group delay leaves "
+      rf"the carrier phase wrong. The phase-delay design points correctly at $f_0$ but sweeps beams out of visible "
+      rf"space ({int(wrp['n_out_of_view'])} beam-frequency cases), where a grating lobe takes over (the jump in "
+      rf"Fig.~\ref{{fig:f7}}). The hypothetical guide with $f_c=4.5$~GHz covers the whole band, but still shows "
+      rf"{f(wg['squint_spread_deg'],1)}$^\circ$ (group design) and {f(wgp['squint_spread_deg'],1)}$^\circ$ "
+      rf"(phase design) of squint spread, with worst pointing errors of {f(wg['max_point_err_deg'],1)}$^\circ$ and "
+      rf"{f(wgp['max_point_err_deg'],1)}$^\circ$. The squint-free property of the DVM therefore holds only for "
+      r'non-dispersive (TEM) delay lines; hollow waveguide is not suitable.')
+
+    w(r'\subsection{Hardware limitations}')
+    w(r'\begin{enumerate}')
+    w(r'\item $90^\circ$ hybrids and fixed $90^\circ$ shifters are band-limited (a branch-line coupler is '
+      r'typically accurate over about 10--20\% bandwidth), so the ideal $\pm j$ assumed here does not hold over an '
+      r'octave such as 5--10~GHz without multi-section designs. ADVM relies on these elements more than EXACT.')
+    w(r'\item The $\breve{D}$ entries depend on $\omega$; they are not constant components, and wideband operation '
+      r'needs a frequency-dependent network (or per-frequency re-programming) that we did not design.')
+    w(r'\item No conductor/dielectric loss, impedance mismatch, coupler imbalance, or splitter/combiner loss is '
+      r'modelled. With hundreds of cascaded passive components, insertion loss would be significant.')
+    w(r'\item Area and power remain an \emph{estimate from a proportional model} (component counts and line '
+      r'lengths only); no layout or routing was done.')
+    w(r'\end{enumerate}')
 
 
 def summary_md(d, h):
@@ -256,7 +374,18 @@ def summary_md(d, h):
         r, cx = d['course'][('ADVM-b', float(b))], d['cx'][('ADVM-b', N_MAIN, float(b))]
         w(f"| {b} | {int(cx['gain_delay'])} | {f(r['squint_spread_deg'])} | {f(r['max_point_err_deg'])} | "
           f"{f(r['worst_sll_delta_db'])} | {'yes' if r['meets_criteria'] else 'no'} |")
-    w('\nFigures: results/figs/F1..F6 (.png 300 dpi + .pdf). LaTeX: report/results_section.tex, report/algorithm.tex.')
+    w('\n## Hardware mapping (results/hardware_table.csv, dispersion_summary.csv)\n')
+    w('| N | method | delay lines | sum p (tau) | combiners | splitters | 180 hyb | 90 hyb | 90 shift | gains (const/w-dep) | total length air (m) |')
+    w('|---|---|---|---|---|---|---|---|---|---|---|')
+    for (N, m), r in sorted(d['hw'].items()):
+        w(f"| {N} | {m} | {r['delay_lines']:g} | {r['total_delay_tau']:.10g} | {r['combiners']:g} | {r['splitters']:g} | "
+          f"{r['hyb180']:g} | {r['hyb90']:g} | {r['shift90']:g} | {r['gain_const']:g}/{r['gain_freqdep']:g} | {r['total_m_air']:.2f} |")
+    w('\n| medium | design | freqs below cutoff | squint spread (deg) | max pointing err (deg) | err at 7.5 GHz (deg) | beams out of view |')
+    w('|---|---|---|---|---|---|---|')
+    for (m, ds), r in d['disp'].items():
+        w(f"| {m} | {ds or '-'} | {int(r['n_below_cutoff'])}/{int(r['n_freqs'])} | {f(r['squint_spread_deg'])} | "
+          f"{f(r['max_point_err_deg'])} | {f(r['err_at_fcenter_deg'])} | {int(r['n_out_of_view'])} |")
+    w('\nFigures: results/figs/F1..F7 (.png 300 dpi + .pdf). LaTeX: report/results_section.tex, report/algorithm.tex.')
     (RES / 'SUMMARY.md').write_text('\n'.join(L) + '\n')
 
 

@@ -186,6 +186,36 @@ def f6_sll(beams):
     save(fig, 'F6_sll_vs_freq')
 
 
+def f7_dispersion(disp, ks=(2, 6)):
+    """Peak angle vs frequency, EXACT with ideal / stripline / waveguide delay lines."""
+    from dvm.hardware import FC_WR90, F_CENTER
+    fig, axs = plt.subplots(1, 2, figsize=(W, 2.5), sharey=True)
+    des = {'group': dict(color='#8f5bd8', ls='--', label='guide, group-delay design'),
+           'phase': dict(color='#c98a12', ls='-.', label='guide, phase-delay design')}
+    for ax, med, fc in zip(axs, ('WR-90', 'WG-fc4.5'), (FC_WR90, 4.5e9)):
+        if fc > 5e9:
+            ax.axvspan(5, fc / 1e9, color='#f1f0ec', lw=0, zorder=0)
+            ax.text(5.1, 85, f'below cutoff\n(fc={fc / 1e9:.2f} GHz)', fontsize=5.5, color=INK, va='top')
+        ax.axvline(F_CENTER / 1e9, color=MUTED, lw=0.6, ls=':')
+        for k in ks:
+            R = select(disp, medium='ideal', kprime=k)
+            ax.plot(col(R, 'f_GHz'), col(R, 'theta_peak'), **STYLE['EXACT'], label='ideal TTD' if k == ks[0] else None)
+            R = select(disp, medium='stripline', kprime=k)[::6]
+            ax.plot(col(R, 'f_GHz'), col(R, 'theta_peak'), 'o', ms=2.2, mfc='none', mew=0.6, color=INK,
+                    label='stripline (TEM)' if k == ks[0] else None)
+            for d, st in des.items():
+                R = select(disp, medium=med, design=d, kprime=k)
+                st = dict(st, label=st['label'] if k == ks[0] else None)
+                ax.plot(col(R, 'f_GHz'), col(R, 'theta_peak'), lw=0.9, **st)
+            ax.annotate(f"k'=+{k}", (10.05, select(disp, medium='ideal', kprime=k)[-1]['theta_peak']), fontsize=5.5,
+                        color=INK, va='center', annotation_clip=False)
+        ax.set(title=med if med == 'WR-90' else 'guide, fc = 4.5 GHz', xlabel='f (GHz)', xlim=(5, 10), ylim=(-92, 92))
+    axs[0].set_ylabel('beam peak angle (deg)')
+    axs[1].legend(frameon=False, loc='lower right', fontsize=5)
+    fig.tight_layout(w_pad=1.2)
+    save(fig, 'F7_dispersion')
+
+
 def main():
     FIGS.mkdir(parents=True, exist_ok=True)
     beams = read_csv(RES / 'beams.csv')
@@ -198,6 +228,7 @@ def main():
     f3_heatmap()
     f4_bsweep(summ, spec, cplx, bstar)
     f5_complexity(cplx)
+    f7_dispersion(read_csv(RES / 'dispersion.csv'))
     f6_sll(beams)
 
 

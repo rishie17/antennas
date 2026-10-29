@@ -12,11 +12,13 @@ from dvm.array import array_factor, u_target_dvm, u_target_ps          # noqa: E
 from dvm.dvm_approx import advm, advm_b, advm_b_factors, advm_factors  # noqa: E402
 from dvm.dvm_direct import direct                                     # noqa: E402
 from dvm.dvm_exact import exact_factors                               # noqa: E402
+from dvm.hardware import (BUILD, F_CENTER, MEDIA, dispersive_beam_matrix, phase_per_tau,  # noqa: E402
+                          sfg, unit_length)
 from dvm.io import write_csv                                          # noqa: E402
 from dvm.methods import beam_matrix                                   # noqa: E402
 from dvm.metrics import pattern_error_db, peaks, rel_spec_err, sll_db, u_to_deg  # noqa: E402
 from dvm.opcount import GENERIC_PH, count                             # noqa: E402
-from dvm.params import (B_SWEEP, BAND, N_COMPLEXITY, N_MAIN, PAPER_FNS, POINT_ERR_DEG,  # noqa: E402
+from dvm.params import (B_SWEEP, BAND, F_MAX_COURSE, N_COMPLEXITY, N_MAIN, PAPER_FNS, POINT_ERR_DEG,  # noqa: E402
                         SEED, SLL_DEGRADE_DB, SQUINT_FREE_DEG, SWEEP_FNS, U_GRID,
                         inner_beams, kprimes, phi)
 
@@ -122,6 +124,67 @@ def scaling_rows():
     return rows
 
 
+DISP_F = np.linspace(BAND[0], BAND[1], 101) * F_MAX_COURSE          # 5-10 GHz
+DISP_MEDIA = [('ideal', ''), ('stripline', '')] + [(m, d) for m in ('WR-90', 'WG-fc4.5') for d in ('group', 'phase')]
+
+
+def hardware_rows():
+    rows = []
+    for N in (16, 32, 64):
+        for m in BUILD:
+            c, L = sfg(m, N)
+            ms = ' '.join(f'{p:g}x{n}' for p, n in zip(*np.unique(L, return_counts=True)))
+            r = dict(N=N, method=m, tau_ps=1e12 / (N * F_MAX_COURSE), **c, total_delay_tau=L.sum(),
+                     max_delay_tau=L.max())
+            for med in MEDIA:
+                r[f'total_m_{med}'] = L.sum() * unit_length(med, N)
+                r[f'max_mm_{med}'] = L.max() * unit_length(med, N) * 1e3
+            r['delay_lengths_tau'] = ms                  # "length x count", lengths in units of tau
+            rows.append(r)
+    return rows
+
+
+def dispersion_rows(N=N_MAIN):
+    rows = []
+    for med, design in DISP_MEDIA:
+        for f in DISP_F:
+            fn, ph = f / F_MAX_COURSE, phi(N, f / F_MAX_COURSE)
+            ph_line = ph if med == 'ideal' else float(phase_per_tau(med, N, f, design=design or 'group'))
+            cut = int(np.isnan(ph_line))
+            if not cut:
+                AF = array_factor(dispersive_beam_matrix(N, ph_line), fn, U_GRID)
+                up, pk, ipk = peaks(AF, U_GRID)
+                sll = sll_db(AF, ipk)
+            ua = u_target_dvm(N) * ph_line / ph      # analytic peak: beam k' at sin = (2k'/N) * ph_line/ph
+            for i, k in enumerate(kprimes(N)):
+                rows.append(dict(medium=med, design=design, N=N, f_GHz=f / 1e9, kprime=int(k),
+                                 inner=int(inner_beams(N)[i]), below_cutoff=cut,
+                                 theta_target=u_to_deg(u_target_dvm(N)[i]),
+                                 theta_analytic=u_to_deg(ua[i]) if abs(ua[i]) <= 1 else np.nan,
+                                 theta_peak=np.nan if cut else u_to_deg(up[i]),
+                                 point_err=np.nan if cut else abs(u_to_deg(up[i]) - u_to_deg(u_target_dvm(N)[i])),
+                                 sll_db=np.nan if cut else sll[i]))
+    return rows
+
+
+def dispersion_summary(rows):
+    out = []
+    for med, design in DISP_MEDIA:
+        R = [r for r in rows if r['medium'] == med and r['design'] == design and r['inner']]
+        ok = [r for r in R if not r['below_cutoff']]
+        fs = sorted({r['f_GHz'] for r in ok})
+        spread = max(np.ptp([r['theta_peak'] for r in ok if r['kprime'] == k]) for k in {r['kprime'] for r in ok}) if ok else np.nan
+        out.append(dict(medium=med, design=design, f_lo_GHz=DISP_F[0] / 1e9, f_hi_GHz=DISP_F[-1] / 1e9,
+                        n_freqs=len({r['f_GHz'] for r in R}), n_below_cutoff=len({r['f_GHz'] for r in R}) - len(fs),
+                        f_valid_lo_GHz=fs[0] if fs else np.nan,
+                        n_out_of_view=sum(np.isnan(r['theta_analytic']) for r in ok),   # beam-freq pairs, |sin|>1
+                        squint_spread_deg=spread, max_point_err_deg=max((r['point_err'] for r in ok), default=np.nan),
+                        err_at_fcenter_deg=max(r['point_err'] for r in ok if abs(r['f_GHz'] - F_CENTER / 1e9) < 1e-9)
+                        if any(abs(r['f_GHz'] - F_CENTER / 1e9) < 1e-9 for r in ok) else np.nan,
+                        squint_free=int(spread < SQUINT_FREE_DEG and len(fs) == len({r['f_GHz'] for r in R}))))
+    return out
+
+
 def main():
     np.random.seed(SEED)   # nothing below is random; seeded anyway per project rules
     t0 = time.time()
@@ -140,6 +203,10 @@ def main():
     write_csv(RES / 'complexity.csv', complexity_rows())
     write_csv(RES / 'specnorm.csv', specnorm_rows())
     write_csv(RES / 'scaling.csv', scaling_rows())
+    write_csv(RES / 'hardware_table.csv', hardware_rows())
+    disp = dispersion_rows()
+    write_csv(RES / 'dispersion.csv', disp)
+    write_csv(RES / 'dispersion_summary.csv', dispersion_summary(disp))
     print(f'CSVs done in {time.time() - t0:.1f}s')
 
     import make_figs

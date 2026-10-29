@@ -24,3 +24,10 @@
 - D22 Observed: eq. (14) satisfies F̂[k,n] = g((k·n) mod 32) with g = its row 1. Used only as an independent cross-check in G2.
 - D23 G5 is tested at N = 16 and N = 64. For N = 16 every twiddle is exactly representable once 2^b ≥ 32, so b* = 5 is trivially EXACT; this is reported as such.
 - D24 Paper's Table 2 errors (~1e-14) are absolute errors at α ≈ 1 (nearly all-ones matrix); our relative error with optimal s is a different metric and is not compared numerically.
+- D25 Hardware mapping (dvm/hardware.py) is read off the same factor lists as opcount; rules are in the module docstring. A 2x2 block counts as a hybrid only when two rows share the same 2 inputs with unit-modulus, orthogonal entries (real -> 180°, with ±j -> 90°). Adjacent factors are NOT merged (e.g. a -j twiddle after a butterfly stays a separate fixed 90° shifter), so counts describe the code as executed.
+- D26 Splitters (fan-out) are counted although not requested: a signal feeding u components needs u-1 two-way splitters; a hybrid consumes each input once.
+- D27 Delay lengths p are read from the D^/DIRECT entries at ωτ = 1e-7 (no 2π wrapping), rounded to multiples of τ/2. Steering pre-delays and the 1/M scale are common to all methods and excluded (as in D9).
+- D28 Physical lengths: τ = 1/(N·10 GHz); L_τ = c·τ (air), c·τ/√4.4 (stripline), v_g(7.5 GHz)·τ (waveguides). WR-90 cutoff = c/(2·22.86 mm) = 6.557 GHz; second guide f_c = 4.5 GHz as specified.
+- D29 Dispersion study replaces EVERY α^p in EXACT (D^, the α^(-m²/2) terms D( is computed from, and the pre-delays) by a line in the same medium, i.e. α -> exp(-jβL_τ). Keeping D( ideal while D^ is dispersive was not simulated.
+- D30 "Delay pτ at f_center" is ambiguous for a waveguide (group vs phase delay differ), so both designs are reported. Group design is used for the length table (as requested). Nothing was tuned afterwards.
+- D31 Below cutoff, β is imaginary (evanescent): the frequency is flagged (below_cutoff = 1) and has no beam metrics. Squint spread of a medium uses only propagating frequencies; squint_free requires full band coverage.
