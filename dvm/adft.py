@@ -2,8 +2,17 @@
 
 F_hat_32 = S4 @ S3 @ S2 @ S1 @ S0   (paper eq. (1)), explicit matrix in eq. (14).
 Entries of every S_i are in {0, ±1, ±j}; entries of F_hat_32 in {±1, ±j, ±1±j}.
+
+Why it matters: a true 32-point DFT needs complex multipliers (twiddles like e^(-j*2pi/32)).
+F_hat_32 replaces each DFT entry e^(-j*2pi*k*n/32) by a point of {±1, ±j, ±1±j} with roughly
+the same phase (unnormalized: ±1±j has magnitude sqrt2), so the whole thing is
+adds, subtractions and 90-degree swaps -- no multipliers. The cost is that F_hat != F.
+
+This file is pure transcription: S0..S4 are typed in from the paper, and the explicit eq. (14)
+matrix is typed in separately so tests/test_g2.py can check S4 S3 S2 S1 S0 == eq. (14).
 """
 import numpy as np
+from scipy.linalg import block_diag as _blkdiag
 
 
 def _rows(n_cols, spec):
@@ -16,17 +25,6 @@ def _rows(n_cols, spec):
             A[r, int(s.lstrip('-'))] += -1 if s.startswith('-') else 1
     return A
 
-
-def _blkdiag(*blocks):
-    n = sum(b.shape[0] for b in blocks)
-    m = sum(b.shape[1] for b in blocks)
-    out = np.zeros((n, m), dtype=complex)
-    i = j = 0
-    for b in blocks:
-        out[i:i + b.shape[0], j:j + b.shape[1]] = b
-        i += b.shape[0]
-        j += b.shape[1]
-    return out
 
 
 # ---- S0 (eq. 10): 17x17 and 15x15 sum/difference butterflies ----

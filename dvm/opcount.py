@@ -10,12 +10,15 @@ Counts are taken at a generic alpha (ph = 1/pi) so no delay accidentally equals 
 """
 import numpy as np
 
+# "Free" coefficients: x*(+-1) is a sign flip, x*(+-j) swaps re/im (90-degree shift), and
+# x*(1+j) = x + j*x is just an add. None of them needs a real multiplier / gain block.
 TRIVIAL = np.array([1, -1, 1j, -1j, 1 + 1j, 1 - 1j, -1 + 1j, -1 - 1j])
 GENERIC_PH = 1 / np.pi
 _KIND = {'Dhat': 'delays', 'predelay': 'delays', 'direct': 'delays', 'Dbreve': 'anticausal'}
 
 
 def _nontrivial(v):
+    """Entries of v that are neither ~0 nor ~a TRIVIAL value (i.e. need a gain-delay block)."""
     v = v[np.abs(v) > 1e-12]
     return v[np.min(np.abs(v[:, None] - TRIVIAL[None, :]), axis=1) > 1e-9]
 
@@ -27,9 +30,10 @@ def count(factors):
         S = S.tocsr()
         S.eliminate_zeros()
         nt = _nontrivial(S.data)
-        out[_KIND.get(tag, 'gains')] += nt.size
+        out[_KIND.get(tag, 'gains')] += nt.size          # bucket by what the factor is (tag)
         if _KIND.get(tag, 'gains') == 'gains':
             consts.append(nt)
+        # a row with n nonzeros sums n inputs -> n-1 additions (indptr diff = nnz per row)
         out['adders'] += int(np.maximum(np.diff(S.indptr) - 1, 0).sum())
     out['gain_delay'] = out['gains'] + out['delays'] + out['anticausal']
     consts = np.concatenate(consts) if consts else np.array([])

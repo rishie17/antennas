@@ -1,5 +1,6 @@
 """Beam metrics on an array-factor matrix AF (rows = beams, columns = u = sin(theta) grid)."""
 import numpy as np
+from scipy.optimize import minimize
 
 
 def u_to_deg(u):
@@ -7,14 +8,17 @@ def u_to_deg(u):
 
 
 def peaks(AF, u):
-    """Peak u per beam (parabolic interpolation on the dB pattern) and peak amplitude."""
+    """Peak u per beam (parabolic interpolation on the dB pattern) and peak amplitude.
+    Grid step is 5e-4 in u; fitting a parabola through the max sample and its two neighbours
+    finds the true peak between grid points, so sub-0.01-degree squint is measurable."""
     i = np.argmax(AF, axis=1)
     r = np.arange(AF.shape[0])
     du = u[1] - u[0]
     inside = (i > 0) & (i < AF.shape[1] - 1)
     ic = np.clip(i, 1, AF.shape[1] - 2)
     ym, y0, yp = (20 * np.log10(AF[r, ic + s] + 1e-300) for s in (-1, 0, 1))
-    den = ym - 2 * y0 + yp
+    den = ym - 2 * y0 + yp                       # curvature; < 0 means a real maximum
+    # vertex of the parabola, in grid steps from i (0 at the grid edges or if not a maximum)
     delta = np.where(inside & (den < 0), 0.5 * (ym - yp) / np.where(den == 0, -1, den), 0.0)
     return u[i] + delta * du, AF[r, i], i
 
@@ -43,8 +47,9 @@ def pattern_error_db(AF_a, AF_e):
 
 
 def rel_spec_err(A, B):
-    """min_s ||A - s B||_2 / ||A||_2 over complex s (convex in s; Nelder-Mead from LS start)."""
-    from scipy.optimize import minimize
+    """min_s ||A - s B||_2 / ||A||_2 over complex s (convex in s; Nelder-Mead from LS start).
+    Why the scalar s: an overall complex gain on all beams doesn't change any beam pattern,
+    so B is not penalised for it. Spectral norm = worst-case error over all input signals."""
     s0 = np.vdot(B, A) / np.vdot(B, B)
     f = lambda p: np.linalg.norm(A - (p[0] + 1j * p[1]) * B, 2)
     res = minimize(f, [s0.real, s0.imag], method='Nelder-Mead',

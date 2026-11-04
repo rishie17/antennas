@@ -58,6 +58,9 @@ def sfg(method, N):
     c = Counter(delay_lines=0, combiners=0, splitters=0, hyb180=0, hyb90=0, shift90=0,
                 inverters=0, gain_const=0, gain_freqdep=0)
     lengths = []
+    # Build the factor list twice: at a generic omega*tau (to tell which entries are
+    # non-trivial) and at a tiny omega*tau (where angle(alpha^p) = -p*ph has no 2pi wrap, so the
+    # delay length p can be read straight off the phase).
     for (tag, S), (_, Ss) in zip(BUILD[method](N, GENERIC_PH), BUILD[method](N, _PH_SMALL)):
         S = S.tocsr()
         S.eliminate_zeros()

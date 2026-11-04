@@ -1,69 +1,138 @@
-# 16-beam Approximate-DVM TTD beamformer: reproduction and evaluation
+# Squint-free multi-beam antenna array: true-time-delay beamforming with a fast (approximate) DVM
 
-This repo reproduces and checks Perera, Lingsch, Tuztas & Madanayake, "A Fast True Time-Delay Wideband
-Multi-Beam Beamforming Algorithm Based on a 16-Beam Approximate-DVM", IEEE Access 13, 2025
-(`refs/perera2025_advm.pdf`). It is for EE3140 at IIT Hyderabad. The results come from array-factor
-simulations with ideal components only, so there is no full-wave modelling and no hardware.
+EE3140 course project, IIT Hyderabad. We reproduce and evaluate
+**Perera, Lingsch, Tuztas & Madanayake, "A Fast True Time-Delay Wideband Multi-Beam Beamforming
+Algorithm Based on a 16-Beam Approximate-DVM", IEEE Access 13, 2025** (`refs/perera2025_advm.pdf`),
+and connect it to what a physical antenna array gains from it.
+
+Everything is a Python simulation (array factor, ideal components). No hardware or EM solver.
+
+---
+
+## 1. The project in one paragraph
+
+A 16-antenna array forms 16 beams at once over 5–10 GHz. To aim a beam, each antenna's signal is
+delayed by `l·d·sinθ/c`. **Phase shifters** fake that delay with a phase, which is only right at
+one frequency, so the beams drift with frequency (**beam squint**). **True time delay (TTD)** fixes
+this, but done directly it needs 225 delay/gain blocks for 16 beams. The paper **factorizes the 16×16
+delay matrix** (FFT-like) so that the same beams need far fewer RF parts (30 delay lines instead of 225).
+It then **approximates** the FFT stages so they need no multipliers at all (ADVM).
+
+**What we found:**
+
+| Claim | Result |
+|---|---|
+| Cost savings of the paper | ✅ reproduced exactly (Lemma 3.2, Table 1, Table 3, N = 16…1024) |
+| TTD keeps every beam on target over 5–10 GHz | ✅ 0 dB gain loss; phase shifters are within 3 dB for only 41% of the band |
+| ADVM accuracy ≈ exact (paper: 1–2 dB sidelobe penalty) | ❌ we get 5.3 dB worse sidelobes and 1.7° residual squint |
+| Delay medium | stripline works; waveguide brings squint back (dispersion) |
+| Paper appendix | typo in matrix S4, row 19 (fixed, see `DECISIONS.md` D1) |
+
+## 2. Quick start
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install numpy scipy matplotlib pytest
-.venv/bin/python -m pytest -q          # gates G1-G5 (30 tests)
-.venv/bin/python scripts/run_all.py    # all CSVs, figures and .tex files (~30 s)
+.venv/bin/python -m pytest -q          # 44 tests, ~10 s
+.venv/bin/python scripts/run_all.py    # regenerates every CSV, figure, .tex and the Overleaf zip (~40 s)
 ```
 
-## The idea in five steps
+**Report:** upload `report/overleaf_bundle.zip` to Overleaf (New Project → Upload Project) and compile
+`progress_report.tex`. Locally: `cd report && pdflatex progress_report` (twice).
 
-1. **The problem: squint.** A phase-shifter (DFT/Butler) beamformer applies fixed phases. A phase is
-   only correct at one frequency, so in a wideband signal each frequency points somewhere different:
-   sinθ = (2k'/N)(f_max/f). That's beam squint (orange curves in `F1`, tilted ridge in `F3`).
-2. **The fix: true time delay (TTD).** Delays are applied instead of phases. In the frequency domain a
-   delay of p·τ is a multiplication by α^p, with α = e^{-jωτ}. All N beams together form the
-   *delay Vandermonde matrix* Ã[k,l] = α^{kl}. Its beams point the same way at every frequency
-   (blue lines in `F1`). Done naively, it costs (N-1)² delay/gain blocks (`DIRECT`).
-3. **Making it fast (`EXACT`, from the paper's ref. [6]).** Use kl = (k² + l² - (k-l)²)/2. This splits
-   Ã into diagonal "chirp" delays around a Toeplitz matrix. The Toeplitz matrix sits inside a 2N-point
-   circulant, and a circulant is diagonalized by FFTs:
-   Ã = (1/M)·D̂ Jᵀ F̃* D̆ F̃ J D̂ with M = 2N. The FFTs need O(N log N) multipliers.
-4. **The paper's trick (`ADVM`).** Replace the two 32-point FFTs with a *multiplierless approximate
-   DFT* (F̂₃₂, Appendix). It is five sparse matrices S0…S4 that contain only 0, ±1, ±j, so they need
-   only adds and 90° rotations. Larger N recurse down to F̂₃₂. This roughly halves the gain-delay count
-   at N = 16 (130 → 62), but the result is no longer exactly Ã.
-5. **What we found.**
-   - The cost savings check out: our op counter reproduces the paper's Lemma 3.2, Table 1 and
-     Table 3 exactly.
-   - The accuracy cost is larger than the paper says. ADVM sidelobes are about 5 dB worse than EXACT
-     (paper: 1–2 dB).
-   - There is about 1–2° of residual squint, so ADVM fails our "squint-free" test (< 0.5°).
-   - Our own extension (`ADVM-b`) rounds FFT twiddles to 2^b phases. It only becomes good enough
-     at b = 5, which for N = 16 *is* the exact FFT, so it offers no cheaper squint-free design.
+## 3. Background you need (viva-level)
 
-All numbers are in `results/SUMMARY.md`, and every resolved ambiguity is in `DECISIONS.md`.
+1. **ULA.** Element `l` sees a plane wave from angle θ with phase `2π f l d sinθ / c`. We use
+   `d = λ/2 at f_max = 10 GHz`, so there are no grating lobes in the band.
+2. **Phase vs delay.** A phase shifter set at `f0` points the beam at `sinθ' = (f0/f)·sinθ` at any
+   other frequency. That's squint. A delay is right at every frequency.
+3. **Many beams = a matrix.** With `α = e^{-jωτ}` (one unit of delay), beam `k` uses delays `k·l·τ`,
+   so all beams together are the **delay Vandermonde matrix** `Ã[k,l] = α^{kl}`. At `f_max` it equals
+   the DFT matrix, which is why an FFT/Butler beamformer works at only one frequency.
+4. **Fast DVM (exact).** `kl = (k² + l² − (k−l)²)/2` splits Ã into *chirp delays × Toeplitz × chirp
+   delays*. The Toeplitz part sits inside a 2N-point circulant, and the FFT diagonalizes the circulant:
+   `Ã = (1/2N) · D̂ Jᵀ F* D̆ F J D̂`. Cost drops from O(N²) to O(N log N).
+5. **ADVM (the paper).** Same formula, but the 32-point FFTs are replaced by a multiplierless
+   approximation `F̂32 = S4·S3·S2·S1·S0` (entries only 0, ±1, ±j). It's cheaper, but no longer exact.
+6. **Matrix → hardware.** Delay `α^p` → delay line `p·τ` · butterfly `[1 1; 1 −1]` → 180° hybrid ·
+   `±j` block → 90° hybrid · row sum → combiners. Only the two `D̂` stages contain delay lines.
 
-## Map
+The code comments in `dvm/dvm_exact.py` walk through step 4 in detail. Start reading there.
 
-| Path | What it does |
+## 4. Repo map
+
+```
+dvm/                    the library (all the physics and math)
+  params.py             every constant: N, band, grids, pass/fail thresholds
+  array.py              ULA steering vectors, beam pre-delay, array factor
+  dvm_direct.py         brute-force Ã = [α^{kl}], the ground truth
+  dvm_exact.py          fast exact DVM as a list of sparse factors, radix-2 FFT   ← start here
+  adft.py               the paper's S0…S4 and F̂32, typed in from the appendix
+  dvm_approx.py         ADVM (paper) and ADVM-b (our extension)
+  methods.py            one entry point: beam_matrix(method, N, f) for PS/DIRECT/EXACT/ADVM/ADVM-b
+  metrics.py            beam peak angle, sidelobe level, pattern error, matrix error
+  opcount.py            counts gain/delay blocks and adders on the factor lists
+  hardware.py           factor lists → RF parts list, delay-line lengths, waveguide dispersion
+  io.py                 tiny CSV helpers
+scripts/
+  run_all.py            runs everything → results/*.csv, then make_figs.py and make_tex.py
+  make_figs.py          CSVs → results/figs/F1…F8
+  make_tex.py           CSVs → report/results_section.tex + results/SUMMARY.md (auto-generated)
+tests/                  test_g1…g5, test_hardware: the checks that keep the numbers honest
+report/                 progress_report.tex (main, hand-written), algorithm.tex, results_section.tex (generated)
+results/                every number (CSV) and figure; SUMMARY.md has the headline tables
+refs/                   the paper
+DECISIONS.md            every ambiguity we had to resolve, one line each (D1…D31)
+```
+
+**How a run flows:**
+
+```
+params ─► methods.beam_matrix(method, N, f) ─► array.array_factor ─► metrics ─► results/*.csv
+              │                                                                     │
+              ├─ dvm_direct / dvm_exact / dvm_approx (lists of sparse factors)      ├─► make_figs ─► figs/
+              └─ the same factor lists ─► opcount + hardware (costs, RF parts)      └─► make_tex  ─► report/
+```
+
+**Key design choice:** every algorithm is a *list of sparse matrices*. The same list is multiplied to
+get the beams, counted to get the cost, and mapped to RF parts. So the cost numbers always describe
+the network that was actually simulated.
+
+## 5. The figures (what each one says)
+
+| Fig | Shows | The one point |
+|---|---|---|
+| F1 | beam angle vs frequency, 7 beams | TTD lines are flat; phase-shifter (PS) curves drift = squint |
+| F2 | paper Fig. 3 replication (16 patterns × 4 frequencies) | ADVM patterns are close to EXACT but not equal |
+| F3 | heat map: direction × frequency for one beam | the PS beam curves off target; the EXACT beam is a vertical stripe |
+| F4 | ADVM-b sweep over b (our extension) | only works at b = 5, which is just the exact FFT, so it's a null result |
+| F5 | hardware blocks vs N (log scale) | direct ∝ N², fast DVM ∝ N log N |
+| F6 | worst sidelobe vs frequency | EXACT −13.2 dB (uniform-array theory); ADVM ~5 dB worse |
+| F7 | real delay lines instead of ideal ones | stripline = ideal; waveguide drifts (dispersion), WR-90 cuts off below 6.56 GHz |
+| F8 | gain toward a beam's target vs frequency | TTD holds 0 dB; PS loses 13–30 dB over most of the band |
+
+## 6. Methods compared
+
+| Name | What it is |
 |---|---|
-| `dvm/params.py` | All constants (N, f_max, bands, grids, thresholds) |
-| `dvm/array.py` | ULA steering vectors, symmetric-beam pre-delay, array factor |
-| `dvm/dvm_direct.py` | Brute-force Ã = [α^{kl}] (ground truth) |
-| `dvm/dvm_exact.py` | Fast DVM as a list of sparse factors; radix-2 DIF FFT |
-| `dvm/adft.py` | Appendix transcription: S0…S4 and F̂₃₂ (eq. 14) |
-| `dvm/dvm_approx.py` | Paper ADVM (Algorithms 1–4) and our ADVM-b |
-| `dvm/methods.py` | Beamformer matrix per method: PS / DIRECT / EXACT / ADVM / ADVM-b |
-| `dvm/opcount.py` | Counts gains/delays/adders on the same factor lists that are executed |
-| `dvm/metrics.py` | Peak angle, SLL, pattern error, relative spectral-norm error |
-| `tests/test_g1..g5.py` | Gates: EXACT==DIRECT, ADFT transcription, Lemma 3.2 counts, physics, ADVM-b convergence |
-| `scripts/run_all.py` | Computes all results CSVs, then calls `make_figs.py` and `make_tex.py` |
-| `report/results_section.tex` | Auto-generated IEEE results section (numbers pulled from CSVs) |
-| `report/algorithm.tex` | Algorithms 1–4 as `algorithm`/`algpseudocode` boxes |
+| `PS` | phase-shifter / DFT (Butler) beamformer, fixed at f_max: the baseline that squints |
+| `DIRECT` | TTD done brute force, N² blocks |
+| `EXACT` | fast exact DVM (O(N log N)), identical beams to DIRECT |
+| `ADVM` | the paper: EXACT with multiplierless approximate FFT stages |
+| `ADVM-b` | ours: EXACT with FFT twiddles rounded to 2^b phases |
 
-The key design choice is that every algorithm is a list of sparse matrices. The same list is
-multiplied to produce the beams and is scanned to count the operations, so the complexity numbers
-always describe the code that actually runs.
+Pass/fail thresholds (fixed before running, never tuned): squint < 0.5°, pointing error < 0.5°,
+sidelobe loss < 1 dB vs EXACT. They live in `dvm/params.py`.
 
-## Hardware mapping (added later)
+## 7. Working on this as a team
 
-`dvm/hardware.py` turns each algorithm into an RF parts list. Butterflies become 180° hybrids, ±j blocks become 90° hybrids, sums become combiners, and α^p becomes a delay line of length p·τ. It then converts the line lengths to mm for air, stripline, WR-90 and a guide with f_c = 4.5 GHz.
-- Outputs are `results/hardware_table.csv` and Tables in Sec. "Hardware Mapping" of `report/results_section.tex`.
-- Dispersion study: the delay lines are swapped for real lines. A TEM line (stripline) is still squint-free. A waveguide is not, because its speed depends on frequency. WR-90 does not even propagate below 6.56 GHz, which covers part of the 5–10 GHz band. See `results/figs/F7_dispersion.png` and `results/dispersion_summary.csv`.
-- One-line takeaway: the DVM is squint-free only if the delay lines are non-dispersive (TEM), and the ±j parts need 90° hybrids, which are narrowband.
+- **Never hand-edit** `results/*` or `report/results_section.tex`. Change the code, then rerun `scripts/run_all.py`.
+- Run `pytest -q` before you push. If a test fails, the numbers in the report are wrong.
+- Work on a branch and open a pull request into `main`: `git checkout -b <your-name>/<topic>`.
+- If you resolve an ambiguity in the paper, add one line to `DECISIONS.md`.
+- Hand-written report text goes in `report/progress_report.tex`.
+
+## 8. Limitations
+
+Ideal lossless components, isotropic elements, no mutual coupling, array factor only. Hardware
+area/power are estimates from component counts, not circuit results. The `D̆` stage is
+frequency-dependent and was not designed as a circuit.

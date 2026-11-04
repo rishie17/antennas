@@ -1,3 +1,9 @@
 .venv/
 __pycache__/
 .pytest_cache/
+report/overleaf_bundle.zip
+report/overleaf_bundle/
+*:Zone.Identifier
+*.aux
+*.log
+*.out

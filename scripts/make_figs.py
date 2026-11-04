@@ -1,4 +1,4 @@
-"""Figures F1-F6 -> results/figs/*.png (300 dpi) + *.pdf, 3.5 in wide (IEEE column)."""
+"""Figures F1-F8 -> results/figs/*.png (300 dpi) + *.pdf, 3.5 in wide (IEEE column)."""
 import pathlib
 import sys
 
@@ -216,6 +216,21 @@ def f7_dispersion(disp, ks=(2, 6)):
     save(fig, 'F7_dispersion')
 
 
+def f8_gain_at_target(gains, k=6, floor=-30):
+    """Gain toward beam k's intended direction vs frequency: what a user at that angle receives."""
+    fig, ax = plt.subplots(figsize=(W, 2.2))
+    for m, lab in (('PS', 'PS'), ('ADVM', 'ADVM (paper)'), ('EXACT', 'EXACT (TTD)')):
+        R = select(gains, method=m, kprime=k)
+        ax.plot(col(R, 'f_GHz'), np.maximum(col(R, 'gain_db'), floor), **STYLE[m], label=lab)
+    ax.axhline(-3, color=MUTED, lw=0.6, ls=':')
+    ax.text(5.05, -2.6, '-3 dB', fontsize=5.5, color=INK)
+    th = np.degrees(np.arcsin(2 * k / N_MAIN))
+    ax.set(xlabel='f (GHz)', ylabel=f"gain toward beam k'=+{k} target\n({th:.1f}°), dB re. ideal",
+           xlim=(5, 10), ylim=(floor - 1, 2))
+    ax.legend(frameon=False, ncol=3, loc='lower right', bbox_to_anchor=(1, 0.08))
+    save(fig, 'F8_gain_at_target')
+
+
 def main():
     FIGS.mkdir(parents=True, exist_ok=True)
     beams = read_csv(RES / 'beams.csv')
@@ -230,6 +245,7 @@ def main():
     f5_complexity(cplx)
     f7_dispersion(read_csv(RES / 'dispersion.csv'))
     f6_sll(beams)
+    f8_gain_at_target(read_csv(RES / 'gain_at_target.csv'))
 
 
 if __name__ == '__main__':

@@ -1,4 +1,9 @@
-"""All simulation constants. Frequencies are handled as fn = f / f_max everywhere."""
+"""All simulation constants. Frequencies are handled as fn = f / f_max everywhere.
+
+Why normalize: with tau = 1/(N f_max) and d = lambda_max/2, every formula depends on f only
+through fn = f/f_max. So the paper's 1 GHz setup and the course's 10 GHz setup are the SAME
+simulation; only the labels on the axes change.
+"""
 import numpy as np
 
 C0 = 299_792_458.0
@@ -21,6 +26,8 @@ SLL_DEGRADE_DB = 1.0
 
 
 def tau(N, f_max):
+    """Unit delay. Chosen so that at f_max, alpha = exp(-j 2 pi f_max tau) = exp(-j 2 pi / N),
+    i.e. the DVM equals the DFT at the top of the band (that's what fixes the beam grid)."""
     return 1.0 / (N * f_max)
 
 
@@ -34,6 +41,7 @@ def phi(N, fn):
 
 
 def kprimes(N):
+    """Signed beam index k' = -N/2 .. N/2-1 (beam k' points at sin(theta) = 2k'/N)."""
     return np.arange(N) - N // 2
 
 

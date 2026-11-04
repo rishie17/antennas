@@ -1,14 +1,27 @@
-"""Regenerate every CSV, figure and .tex file:   python scripts/run_all.py"""
+"""Regenerate every CSV, figure and .tex file:   python scripts/run_all.py
+
+Pipeline (each *_rows function -> one CSV in results/):
+  beam_rows          every method x frequency x beam: peak angle, pointing error, SLL  -> beams.csv
+  summarize          worst case over inner beams + band, pass/fail per method          -> summary_methods.csv
+  complexity_rows    op counts for N = 16..1024 next to the paper's numbers            -> complexity.csv
+  specnorm_rows      matrix error of ADVM / ADVM-b vs DIRECT over frequency           -> specnorm.csv
+  scaling_rows       ADVM vs EXACT for N = 16, 32, 64 at the paper's 4 frequencies    -> scaling.csv
+  hardware_rows      RF component counts and delay-line lengths                       -> hardware_table.csv
+  gain_rows          gain toward each beam's intended direction, per method x frequency  -> gain_*.csv
+  dispersion_rows    EXACT built from real (dispersive) lines instead of ideal delays -> dispersion*.csv
+Then make_figs.py draws F1-F7 and make_tex.py writes the report + SUMMARY.md, both from the CSVs only.
+"""
 import pathlib
 import sys
 import time
 
 import numpy as np
+import scipy.sparse as sp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from dvm.array import array_factor, u_target_dvm, u_target_ps          # noqa: E402
+from dvm.array import array_factor, steering, u_target_dvm, u_target_ps  # noqa: E402
 from dvm.dvm_approx import advm, advm_b, advm_b_factors, advm_factors  # noqa: E402
 from dvm.dvm_direct import direct                                     # noqa: E402
 from dvm.dvm_exact import exact_factors                               # noqa: E402
@@ -19,7 +32,7 @@ from dvm.methods import beam_matrix                                   # noqa: E4
 from dvm.metrics import pattern_error_db, peaks, rel_spec_err, sll_db, u_to_deg  # noqa: E402
 from dvm.opcount import GENERIC_PH, count                             # noqa: E402
 from dvm.params import (B_SWEEP, BAND, F_MAX_COURSE, N_COMPLEXITY, N_MAIN, PAPER_FNS, POINT_ERR_DEG,  # noqa: E402
-                        SEED, SLL_DEGRADE_DB, SQUINT_FREE_DEG, SWEEP_FNS, U_GRID,
+                        SLL_DEGRADE_DB, SQUINT_FREE_DEG, SWEEP_FNS, U_GRID,
                         inner_beams, kprimes, phi)
 
 RES = ROOT / 'results'
@@ -78,7 +91,6 @@ def summarize(rows, lo, hi, band_name):
 def complexity_rows():
     rows = []
     for N in N_COMPLEXITY:
-        import scipy.sparse as sp
         cs = {'DIRECT': count([('direct', sp.csr_matrix(direct(N, GENERIC_PH)))]),
               'EXACT': count(exact_factors(N, GENERIC_PH)),
               'ADVM': count(advm_factors(N, GENERIC_PH))}
@@ -122,6 +134,42 @@ def scaling_rows():
                              max_point_err_deg=perr.max(), worst_sll_delta_db=np.nanmax(dsll),
                              rel_spec_err=rel_spec_err(direct(N, phi(N, fn)), advm(N, phi(N, fn)))))
     return rows
+
+
+SNR_NOMINAL_DB = 20      # assumed link SNR for the capacity comparison (ideal beam = this SNR)
+
+
+def gain_rows(N=N_MAIN):
+    """Normalized beamforming gain toward each beam's INTENDED direction, |w^H a|^2 / (||w||^2 N):
+    1 (0 dB) = ideal coherent gain. This is what a user sitting at the target angle receives."""
+    rows = []
+    a_fns = np.linspace(BAND[0], BAND[1], 51)
+    for m in ('PS', 'EXACT', 'ADVM'):
+        for fn in a_fns:
+            B = beam_matrix(m, N, fn)
+            a = steering(N, fn, u_target_dvm(N))           # column i = wave from beam i's target
+            g = np.abs(np.sum(B * a.T, axis=1)) ** 2 / (np.sum(np.abs(B) ** 2, axis=1) * N)
+            for i, k in enumerate(kprimes(N)):
+                rows.append(dict(method=m, N=N, fn=round(float(fn), 10), f_GHz=fn * F_MAX_COURSE / 1e9,
+                                 kprime=int(k), inner=int(inner_beams(N)[i]), gain=g[i],
+                                 gain_db=10 * np.log10(max(g[i], 1e-12))))
+    return rows
+
+
+def gain_summary(rows):
+    """Per method over the band and inner beams: mean loss, share of band within 3 dB, capacity vs ideal."""
+    out = []
+    snr = 10 ** (SNR_NOMINAL_DB / 10)
+    for m in ('PS', 'EXACT', 'ADVM'):
+        R = [r for r in rows if r['method'] == m and r['inner']]
+        g, gdb = np.array([r['gain'] for r in R]), np.array([r['gain_db'] for r in R])
+        per_beam = [np.mean([r['gain_db'] > -3 for r in R if r['kprime'] == k]) for k in sorted({r['kprime'] for r in R})]
+        out.append(dict(method=m, mean_loss_db=-10 * np.log10(g.mean()),   # loss of band-averaged power gain
+                        worst_gain_db=gdb.min(),
+                        band_within_3db_pct=100 * np.mean(gdb > -3), worst_beam_within_3db_pct=100 * min(per_beam),
+                        snr_nominal_db=SNR_NOMINAL_DB,
+                        capacity_pct_of_ideal=100 * np.log2(1 + snr * g).mean() / np.log2(1 + snr)))
+    return out
 
 
 DISP_F = np.linspace(BAND[0], BAND[1], 101) * F_MAX_COURSE          # 5-10 GHz
@@ -185,8 +233,17 @@ def dispersion_summary(rows):
     return out
 
 
+def overleaf_zip():
+    """report/overleaf_bundle.zip: the .tex files + figure PDFs, flattened so Overleaf compiles it as-is."""
+    import zipfile
+    with zipfile.ZipFile(ROOT / 'report' / 'overleaf_bundle.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+        for name in ('progress_report.tex', 'results_section.tex', 'algorithm.tex'):
+            z.writestr(name, (ROOT / 'report' / name).read_text().replace('../results/figs/', 'figs/'))
+        for f in sorted((RES / 'figs').glob('*.pdf')):
+            z.write(f, f'figs/{f.name}')
+
+
 def main():
-    np.random.seed(SEED)   # nothing below is random; seeded anyway per project rules
     t0 = time.time()
     RES.mkdir(exist_ok=True)
     (RES / 'figs').mkdir(exist_ok=True)
@@ -204,6 +261,9 @@ def main():
     write_csv(RES / 'specnorm.csv', specnorm_rows())
     write_csv(RES / 'scaling.csv', scaling_rows())
     write_csv(RES / 'hardware_table.csv', hardware_rows())
+    gains = gain_rows()
+    write_csv(RES / 'gain_at_target.csv', gains)
+    write_csv(RES / 'gain_summary.csv', gain_summary(gains))
     disp = dispersion_rows()
     write_csv(RES / 'dispersion.csv', disp)
     write_csv(RES / 'dispersion_summary.csv', dispersion_summary(disp))
@@ -213,6 +273,7 @@ def main():
     import make_tex
     make_figs.main()
     make_tex.main()
+    overleaf_zip()
     print(f'run_all finished in {time.time() - t0:.1f}s')
 
 
